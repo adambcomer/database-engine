@@ -1,5 +1,4 @@
-use std::time::{SystemTime, UNIX_EPOCH};
-
+#[derive(Debug)]
 pub struct MemEntry {
   pub key: Vec<u8>,
   pub value: Vec<u8>,
@@ -40,12 +39,11 @@ impl MemTable {
     };
   }
 
-  pub fn put(&mut self, key: &[u8], value: &[u8]) -> usize {
-    let now = SystemTime::now();
+  pub fn put(&mut self, key: &[u8], value: &[u8], timestamp: u128) -> usize {
     let entry = MemEntry {
       key: key.to_owned(),
       value: value.to_owned(),
-      timestamp: now.duration_since(UNIX_EPOCH).unwrap().as_micros(),
+      timestamp: timestamp,
     };
     if let Ok(pos) = self
       .entries
@@ -73,6 +71,10 @@ impl MemTable {
       return Some(&self.entries[pos]);
     }
     return None;
+  }
+
+  pub fn len(&self) -> usize {
+    return self.entries.len();
   }
 }
 
@@ -132,17 +134,17 @@ mod tests {
   fn test_find_index_end() {
     let v: Vec<MemEntry> = vec![
       MemEntry {
-        key: "Apple".as_bytes().to_owned(),
-        value: "Apple Smoothie".as_bytes().to_owned(),
+        key: b"Apple".to_vec(),
+        value: b"Apple Smoothie".to_vec(),
         timestamp: 0,
       },
       MemEntry {
-        key: "Lime".as_bytes().to_owned(),
-        value: "Lime Smoothie".as_bytes().to_owned(),
+        key: b"Lime".to_vec(),
+        value: b"Lime Smoothie".to_vec(),
         timestamp: 0,
       },
     ];
-    let key = "Orange".as_bytes();
+    let key = b"Orange";
 
     assert_eq!(find_next_index(&v, key), 2);
   }
@@ -154,23 +156,20 @@ mod tests {
       .unwrap()
       .as_micros();
     let mut table = MemTable::new();
-    table.put("Lime".as_bytes(), "Lime Smoothie".as_bytes());
-    table.put("Orange".as_bytes(), "Orange Smoothie".as_bytes());
+    table.put(b"Lime", b"Lime Smoothie", timestamp);
+    table.put(b"Orange", b"Orange Smoothie", timestamp + 10);
 
-    table.put("Apple".as_bytes(), "Apple Smoothie".as_bytes());
+    table.put(b"Apple", b"Apple Smoothie", timestamp + 20);
 
-    assert_eq!(table.entries[0].key, "Apple".as_bytes());
-    assert_eq!(table.entries[0].value, "Apple Smoothie".as_bytes());
-    assert_eq!(table.entries[0].timestamp >= timestamp, true);
-    assert_eq!(table.entries[0].timestamp <= timestamp + 1000, true);
-    assert_eq!(table.entries[1].key, "Lime".as_bytes());
-    assert_eq!(table.entries[1].value, "Lime Smoothie".as_bytes());
-    assert_eq!(table.entries[1].timestamp >= timestamp, true);
-    assert_eq!(table.entries[1].timestamp <= timestamp + 1000, true);
-    assert_eq!(table.entries[2].key, "Orange".as_bytes());
-    assert_eq!(table.entries[2].value, "Orange Smoothie".as_bytes());
-    assert_eq!(table.entries[2].timestamp >= timestamp, true);
-    assert_eq!(table.entries[2].timestamp <= timestamp + 1000, true);
+    assert_eq!(table.entries[0].key, b"Apple");
+    assert_eq!(table.entries[0].value, b"Apple Smoothie");
+    assert_eq!(table.entries[0].timestamp, timestamp + 20);
+    assert_eq!(table.entries[1].key, b"Lime");
+    assert_eq!(table.entries[1].value, b"Lime Smoothie");
+    assert_eq!(table.entries[1].timestamp, timestamp);
+    assert_eq!(table.entries[2].key, b"Orange");
+    assert_eq!(table.entries[2].value, b"Orange Smoothie");
+    assert_eq!(table.entries[2].timestamp, timestamp + 10);
   }
 
   #[test]
@@ -180,23 +179,20 @@ mod tests {
       .unwrap()
       .as_micros();
     let mut table = MemTable::new();
-    table.put("Apple".as_bytes(), "Apple Smoothie".as_bytes());
-    table.put("Orange".as_bytes(), "Orange Smoothie".as_bytes());
+    table.put(b"Apple", b"Apple Smoothie", timestamp);
+    table.put(b"Orange", b"Orange Smoothie", timestamp + 10);
 
-    table.put("Lime".as_bytes(), "Lime Smoothie".as_bytes());
+    table.put(b"Lime", b"Lime Smoothie", timestamp + 20);
 
-    assert_eq!(table.entries[0].key, "Apple".as_bytes());
-    assert_eq!(table.entries[0].value, "Apple Smoothie".as_bytes());
-    assert_eq!(table.entries[0].timestamp >= timestamp, true);
-    assert_eq!(table.entries[0].timestamp <= timestamp + 1000, true);
-    assert_eq!(table.entries[1].key, "Lime".as_bytes());
-    assert_eq!(table.entries[1].value, "Lime Smoothie".as_bytes());
-    assert_eq!(table.entries[1].timestamp >= timestamp, true);
-    assert_eq!(table.entries[1].timestamp <= timestamp + 1000, true);
-    assert_eq!(table.entries[2].key, "Orange".as_bytes());
-    assert_eq!(table.entries[2].value, "Orange Smoothie".as_bytes());
-    assert_eq!(table.entries[2].timestamp >= timestamp, true);
-    assert_eq!(table.entries[2].timestamp <= timestamp + 1000, true);
+    assert_eq!(table.entries[0].key, b"Apple");
+    assert_eq!(table.entries[0].value, b"Apple Smoothie");
+    assert_eq!(table.entries[0].timestamp, timestamp);
+    assert_eq!(table.entries[1].key, b"Lime");
+    assert_eq!(table.entries[1].value, b"Lime Smoothie");
+    assert_eq!(table.entries[1].timestamp, timestamp + 20);
+    assert_eq!(table.entries[2].key, b"Orange");
+    assert_eq!(table.entries[2].value, b"Orange Smoothie");
+    assert_eq!(table.entries[2].timestamp, timestamp + 10);
   }
 
   #[test]
@@ -206,23 +202,20 @@ mod tests {
       .unwrap()
       .as_micros();
     let mut table = MemTable::new();
-    table.put("Apple".as_bytes(), "Apple Smoothie".as_bytes());
-    table.put("Lime".as_bytes(), "Lime Smoothie".as_bytes());
+    table.put(b"Apple", b"Apple Smoothie", timestamp);
+    table.put(b"Lime", b"Lime Smoothie", timestamp + 10);
 
-    table.put("Orange".as_bytes(), "Orange Smoothie".as_bytes());
+    table.put(b"Orange", b"Orange Smoothie", timestamp + 20);
 
-    assert_eq!(table.entries[0].key, "Apple".as_bytes());
-    assert_eq!(table.entries[0].value, "Apple Smoothie".as_bytes());
-    assert_eq!(table.entries[0].timestamp >= timestamp, true);
-    assert_eq!(table.entries[0].timestamp <= timestamp + 1000, true);
-    assert_eq!(table.entries[1].key, "Lime".as_bytes());
-    assert_eq!(table.entries[1].value, "Lime Smoothie".as_bytes());
-    assert_eq!(table.entries[1].timestamp >= timestamp, true);
-    assert_eq!(table.entries[1].timestamp <= timestamp + 1000, true);
-    assert_eq!(table.entries[2].key, "Orange".as_bytes());
-    assert_eq!(table.entries[2].value, "Orange Smoothie".as_bytes());
-    assert_eq!(table.entries[2].timestamp >= timestamp, true);
-    assert_eq!(table.entries[2].timestamp <= timestamp + 1000, true);
+    assert_eq!(table.entries[0].key, b"Apple");
+    assert_eq!(table.entries[0].value, b"Apple Smoothie");
+    assert_eq!(table.entries[0].timestamp, timestamp);
+    assert_eq!(table.entries[1].key, b"Lime");
+    assert_eq!(table.entries[1].value, b"Lime Smoothie");
+    assert_eq!(table.entries[1].timestamp, timestamp + 10);
+    assert_eq!(table.entries[2].key, b"Orange");
+    assert_eq!(table.entries[2].value, b"Orange Smoothie");
+    assert_eq!(table.entries[2].timestamp, timestamp + 20);
   }
 
   #[test]
@@ -232,24 +225,21 @@ mod tests {
       .unwrap()
       .as_micros();
     let mut table = MemTable::new();
-    table.put("Apple".as_bytes(), "Apple Smoothie".as_bytes());
-    table.put("Lime".as_bytes(), "Lime Smoothie".as_bytes());
-    table.put("Orange".as_bytes(), "Orange Smoothie".as_bytes());
+    table.put(b"Apple", b"Apple Smoothie", timestamp);
+    table.put(b"Lime", b"Lime Smoothie", timestamp + 10);
+    table.put(b"Orange", b"Orange Smoothie", timestamp + 20);
 
-    table.put("Lime".as_bytes(), "A sour fruit".as_bytes());
+    table.put(b"Lime", b"A sour fruit", timestamp + 30);
 
-    assert_eq!(table.entries[0].key, "Apple".as_bytes());
-    assert_eq!(table.entries[0].value, "Apple Smoothie".as_bytes());
-    assert_eq!(table.entries[0].timestamp >= timestamp, true);
-    assert_eq!(table.entries[0].timestamp <= timestamp + 1000, true);
-    assert_eq!(table.entries[1].key, "Lime".as_bytes());
-    assert_eq!(table.entries[1].value, "A sour fruit".as_bytes());
-    assert_eq!(table.entries[1].timestamp >= timestamp, true);
-    assert_eq!(table.entries[1].timestamp <= timestamp + 1000, true);
-    assert_eq!(table.entries[2].key, "Orange".as_bytes());
-    assert_eq!(table.entries[2].value, "Orange Smoothie".as_bytes());
-    assert_eq!(table.entries[2].timestamp >= timestamp, true);
-    assert_eq!(table.entries[2].timestamp <= timestamp + 1000, true);
+    assert_eq!(table.entries[0].key, b"Apple");
+    assert_eq!(table.entries[0].value, b"Apple Smoothie");
+    assert_eq!(table.entries[0].timestamp, timestamp);
+    assert_eq!(table.entries[1].key, b"Lime");
+    assert_eq!(table.entries[1].value, b"A sour fruit");
+    assert_eq!(table.entries[1].timestamp, timestamp + 30);
+    assert_eq!(table.entries[2].key, b"Orange");
+    assert_eq!(table.entries[2].value, b"Orange Smoothie");
+    assert_eq!(table.entries[2].timestamp, timestamp + 20);
   }
 
   #[test]
@@ -259,28 +249,25 @@ mod tests {
       .unwrap()
       .as_micros();
     let mut table = MemTable::new();
-    table.put("Apple".as_bytes(), "Apple Smoothie".as_bytes());
-    table.put("Lime".as_bytes(), "Lime Smoothie".as_bytes());
-    table.put("Orange".as_bytes(), "Orange Smoothie".as_bytes());
+    table.put(b"Apple", b"Apple Smoothie", timestamp);
+    table.put(b"Lime", b"Lime Smoothie", timestamp + 10);
+    table.put(b"Orange", b"Orange Smoothie", timestamp + 20);
 
-    let res = table.get("Orange".as_bytes());
-    assert_eq!(res.is_some(), true);
+    let entry = table.get(b"Orange").unwrap();
 
-    let entry = res.unwrap();
-    assert_eq!(entry.key, "Orange".as_bytes());
-    assert_eq!(entry.value, "Orange Smoothie".as_bytes());
-    assert_eq!(entry.timestamp >= timestamp, true);
-    assert_eq!(entry.timestamp <= timestamp + 1000, true);
+    assert_eq!(entry.key, b"Orange");
+    assert_eq!(entry.value, b"Orange Smoothie");
+    assert_eq!(entry.timestamp, timestamp + 20);
   }
 
   #[test]
   fn test_mem_table_get_not_exists() {
     let mut table = MemTable::new();
-    table.put("Apple".as_bytes(), "Apple Smoothie".as_bytes());
-    table.put("Lime".as_bytes(), "Lime Smoothie".as_bytes());
-    table.put("Orange".as_bytes(), "Orange Smoothie".as_bytes());
+    table.put(b"Apple", b"Apple Smoothie", 0);
+    table.put(b"Lime", b"Lime Smoothie", 0);
+    table.put(b"Orange", b"Orange Smoothie", 0);
 
-    let res = table.get("Potato".as_bytes());
+    let res = table.get(b"Potato");
     assert_eq!(res.is_some(), false);
   }
 }
