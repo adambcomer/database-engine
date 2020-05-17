@@ -52,7 +52,7 @@ impl Database {
     return None;
   }
 
-  pub fn put(&mut self, key: &[u8], value: &[u8]) -> Result<usize, usize> {
+  pub fn set(&mut self, key: &[u8], value: &[u8]) -> Result<usize, usize> {
     let timestamp = SystemTime::now()
       .duration_since(UNIX_EPOCH)
       .unwrap()
@@ -66,7 +66,7 @@ impl Database {
       return Err(0);
     }
 
-    let bytes_stored = self.mem_table.put(key, value, timestamp);
+    let bytes_stored = self.mem_table.set(key, value, timestamp);
 
     return Ok(bytes_stored);
   }

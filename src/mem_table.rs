@@ -39,7 +39,7 @@ impl MemTable {
     };
   }
 
-  pub fn put(&mut self, key: &[u8], value: &[u8], timestamp: u128) -> usize {
+  pub fn set(&mut self, key: &[u8], value: &[u8], timestamp: u128) -> usize {
     let entry = MemEntry {
       key: key.to_owned(),
       value: value.to_owned(),
@@ -76,6 +76,10 @@ impl MemTable {
   pub fn len(&self) -> usize {
     return self.entries.len();
   }
+
+  pub fn entries(&self) -> &Vec<MemEntry> {
+    return &self.entries;
+  } 
 }
 
 #[cfg(test)]
@@ -156,10 +160,10 @@ mod tests {
       .unwrap()
       .as_micros();
     let mut table = MemTable::new();
-    table.put(b"Lime", b"Lime Smoothie", timestamp);
-    table.put(b"Orange", b"Orange Smoothie", timestamp + 10);
+    table.set(b"Lime", b"Lime Smoothie", timestamp);
+    table.set(b"Orange", b"Orange Smoothie", timestamp + 10);
 
-    table.put(b"Apple", b"Apple Smoothie", timestamp + 20);
+    table.set(b"Apple", b"Apple Smoothie", timestamp + 20);
 
     assert_eq!(table.entries[0].key, b"Apple");
     assert_eq!(table.entries[0].value, b"Apple Smoothie");
@@ -179,10 +183,10 @@ mod tests {
       .unwrap()
       .as_micros();
     let mut table = MemTable::new();
-    table.put(b"Apple", b"Apple Smoothie", timestamp);
-    table.put(b"Orange", b"Orange Smoothie", timestamp + 10);
+    table.set(b"Apple", b"Apple Smoothie", timestamp);
+    table.set(b"Orange", b"Orange Smoothie", timestamp + 10);
 
-    table.put(b"Lime", b"Lime Smoothie", timestamp + 20);
+    table.set(b"Lime", b"Lime Smoothie", timestamp + 20);
 
     assert_eq!(table.entries[0].key, b"Apple");
     assert_eq!(table.entries[0].value, b"Apple Smoothie");
@@ -202,10 +206,10 @@ mod tests {
       .unwrap()
       .as_micros();
     let mut table = MemTable::new();
-    table.put(b"Apple", b"Apple Smoothie", timestamp);
-    table.put(b"Lime", b"Lime Smoothie", timestamp + 10);
+    table.set(b"Apple", b"Apple Smoothie", timestamp);
+    table.set(b"Lime", b"Lime Smoothie", timestamp + 10);
 
-    table.put(b"Orange", b"Orange Smoothie", timestamp + 20);
+    table.set(b"Orange", b"Orange Smoothie", timestamp + 20);
 
     assert_eq!(table.entries[0].key, b"Apple");
     assert_eq!(table.entries[0].value, b"Apple Smoothie");
@@ -225,11 +229,11 @@ mod tests {
       .unwrap()
       .as_micros();
     let mut table = MemTable::new();
-    table.put(b"Apple", b"Apple Smoothie", timestamp);
-    table.put(b"Lime", b"Lime Smoothie", timestamp + 10);
-    table.put(b"Orange", b"Orange Smoothie", timestamp + 20);
+    table.set(b"Apple", b"Apple Smoothie", timestamp);
+    table.set(b"Lime", b"Lime Smoothie", timestamp + 10);
+    table.set(b"Orange", b"Orange Smoothie", timestamp + 20);
 
-    table.put(b"Lime", b"A sour fruit", timestamp + 30);
+    table.set(b"Lime", b"A sour fruit", timestamp + 30);
 
     assert_eq!(table.entries[0].key, b"Apple");
     assert_eq!(table.entries[0].value, b"Apple Smoothie");
@@ -249,9 +253,9 @@ mod tests {
       .unwrap()
       .as_micros();
     let mut table = MemTable::new();
-    table.put(b"Apple", b"Apple Smoothie", timestamp);
-    table.put(b"Lime", b"Lime Smoothie", timestamp + 10);
-    table.put(b"Orange", b"Orange Smoothie", timestamp + 20);
+    table.set(b"Apple", b"Apple Smoothie", timestamp);
+    table.set(b"Lime", b"Lime Smoothie", timestamp + 10);
+    table.set(b"Orange", b"Orange Smoothie", timestamp + 20);
 
     let entry = table.get(b"Orange").unwrap();
 
@@ -263,9 +267,9 @@ mod tests {
   #[test]
   fn test_mem_table_get_not_exists() {
     let mut table = MemTable::new();
-    table.put(b"Apple", b"Apple Smoothie", 0);
-    table.put(b"Lime", b"Lime Smoothie", 0);
-    table.put(b"Orange", b"Orange Smoothie", 0);
+    table.set(b"Apple", b"Apple Smoothie", 0);
+    table.set(b"Lime", b"Lime Smoothie", 0);
+    table.set(b"Orange", b"Orange Smoothie", 0);
 
     let res = table.get(b"Potato");
     assert_eq!(res.is_some(), false);

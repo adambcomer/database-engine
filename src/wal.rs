@@ -64,7 +64,7 @@ impl WAL {
           }
 
           let (entry, len) = WAL::read_mem_table_entry(&mut reader).unwrap();
-          new_mem_table.put(
+          new_mem_table.set(
             entry.key.as_slice(),
             entry.value.as_slice(),
             entry.timestamp,
