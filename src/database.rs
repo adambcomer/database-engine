@@ -44,7 +44,7 @@ impl Database {
     if let Some(mem_entry) = self.mem_table.get(key) {
       return Some(DatabaseEntry {
         key: mem_entry.key.clone(),
-        value: mem_entry.value.clone(),
+        value: mem_entry.value.as_ref().unwrap().clone(),
         timestamp: mem_entry.timestamp,
       });
     }
@@ -58,7 +58,7 @@ impl Database {
       .unwrap()
       .as_micros();
 
-    let wal_res = self.wal.append(key, value, timestamp);
+    let wal_res = self.wal.set(key, value, timestamp);
     if wal_res.is_err() {
       return Err(0);
     }
@@ -66,8 +66,27 @@ impl Database {
       return Err(0);
     }
 
-    let bytes_stored = self.mem_table.set(key, value, timestamp);
+    self.mem_table.set(key, value, timestamp);
 
-    return Ok(bytes_stored);
+    return Ok(1);
+  }
+
+  pub fn delete(&mut self, key: &[u8]) -> Result<usize, usize> {
+    let timestamp = SystemTime::now()
+      .duration_since(UNIX_EPOCH)
+      .unwrap()
+      .as_micros();
+
+    let wal_res = self.wal.delete(key, timestamp);
+    if wal_res.is_err() {
+      return Err(0);
+    }
+    if let Err(_) = self.wal.flush() {
+      return Err(0);
+    }
+
+    self.mem_table.delete(key, timestamp);
+
+    return Ok(1);
   }
 }

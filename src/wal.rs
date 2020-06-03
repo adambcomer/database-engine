@@ -1,6 +1,7 @@
 use crate::mem_table::{MemEntry, MemTable};
+use crate::utils::files_with_ext;
 use crate::wal::WALError::*;
-use std::fs::{metadata, read_dir, remove_file, File, OpenOptions};
+use std::fs::{metadata, remove_file, File, OpenOptions};
 use std::io::prelude::*;
 use std::io::{BufReader, BufWriter};
 use std::path::{Path, PathBuf};
@@ -13,12 +14,18 @@ pub enum WALError {
   CorruptRecord,
 }
 
+/// Write Ahead Log(WAL)
+///
+/// An append-only file that holds the operations performed on the MemTable. 
+/// The WAL is intended for recovery of the MemTable when the server is shutdown.
 pub struct WAL {
   path: PathBuf,
   file: BufWriter<File>,
 }
 
 impl WAL {
+
+  /// Creates a new WAL in a given directory.
   pub fn new(dir: &str) -> WAL {
     let timestamp = SystemTime::now()
       .duration_since(UNIX_EPOCH)
@@ -39,14 +46,11 @@ impl WAL {
     };
   }
 
+  /// Loads the WAL(s) within a directory, returning a new WAL and the recovered MemTable. 
+  /// 
+  /// If multiple WALs exists in a directory, they are merged by file date.
   pub fn load_wal(dir: &str) -> Result<(WAL, MemTable), WALError> {
-    let mut wal_files = Vec::new();
-    for file in read_dir(Path::new(dir)).unwrap() {
-      let path = file.unwrap().path();
-      if path.to_str().unwrap().ends_with(".wal") {
-        wal_files.push(path);
-      }
-    }
+    let mut wal_files = files_with_ext(dir, "wal");
     wal_files.sort();
 
     let mut new_mem_table = MemTable::new();
@@ -64,15 +68,23 @@ impl WAL {
           }
 
           let (entry, len) = WAL::read_mem_table_entry(&mut reader).unwrap();
+
+          if entry.deleted {
+            new_mem_table.delete(entry.key.as_slice(), entry.timestamp);
+            new_wal
+              .delete(entry.key.as_slice(), entry.timestamp)
+              .unwrap();
+          } else {
+          }
           new_mem_table.set(
             entry.key.as_slice(),
-            entry.value.as_slice(),
+            entry.value.as_ref().unwrap().as_slice(),
             entry.timestamp,
           );
           new_wal
-            .append(
+            .set(
               entry.key.as_slice(),
-              entry.value.as_slice(),
+              entry.value.unwrap().as_slice(),
               entry.timestamp,
             )
             .unwrap();
@@ -86,26 +98,40 @@ impl WAL {
     return Ok((new_wal, new_mem_table));
   }
 
-  pub fn read_mem_table_entry(reader: &mut BufReader<File>) -> Result<(MemEntry, usize), WALError> {
+  /// Reads an entry in the WAL and recovers a corresponding MemTable Entry.
+  fn read_mem_table_entry(reader: &mut BufReader<File>) -> Result<(MemEntry, usize), WALError> {
     let mut len_buffer = [0; 8];
     if let Err(_) = reader.read_exact(&mut len_buffer) {
       return Err(CorruptRecord);
     }
     let key_len = usize::from_le_bytes(len_buffer);
 
-    if let Err(_) = reader.read_exact(&mut len_buffer) {
+    let mut bool_buffer = [0; 1];
+    if let Err(_) = reader.read_exact(&mut bool_buffer) {
       return Err(CorruptRecord);
     }
-    let value_len = usize::from_le_bytes(len_buffer);
+    let deleted = bool_buffer[0] != 0;
 
     let mut key = vec![0; key_len];
-    if let Err(_) = reader.read_exact(&mut key) {
-      return Err(CorruptRecord);
-    }
-
-    let mut value = vec![0; value_len];
-    if let Err(_) = reader.read_exact(&mut value) {
-      return Err(CorruptRecord);
+    let mut value_len = 0;
+    let mut value = None;
+    if deleted {
+      if let Err(_) = reader.read_exact(&mut key) {
+        return Err(CorruptRecord);
+      }
+    } else {
+      if let Err(_) = reader.read_exact(&mut len_buffer) {
+        return Err(CorruptRecord);
+      }
+      value_len = usize::from_le_bytes(len_buffer);
+      if let Err(_) = reader.read_exact(&mut key) {
+        return Err(CorruptRecord);
+      }
+      let mut value_buf = vec![0; value_len];
+      if let Err(_) = reader.read_exact(&mut value_buf) {
+        return Err(CorruptRecord);
+      }
+      value = Some(value_buf);
     }
 
     let mut timestamp_buffer = [0; 16];
@@ -119,13 +145,18 @@ impl WAL {
         key: key,
         value: value,
         timestamp: timestamp,
+        deleted: deleted,
       },
-      key_len + value_len + 16 + 16,
+      key_len + value_len + 17 + 16,
     ));
   }
 
-  pub fn append(&mut self, key: &[u8], value: &[u8], timestamp: u128) -> Result<(), WALError> {
+  /// Sets a Key-Value pair and the operation is appended to the WAL.
+  pub fn set(&mut self, key: &[u8], value: &[u8], timestamp: u128) -> Result<(), WALError> {
     if let Err(_) = self.file.write(&key.len().to_le_bytes()) {
+      return Err(AppendEntryError);
+    }
+    if let Err(_) = self.file.write(&(false as u8).to_le_bytes()) {
       return Err(AppendEntryError);
     }
     if let Err(_) = self.file.write(&value.len().to_le_bytes()) {
@@ -144,6 +175,31 @@ impl WAL {
     return Ok(());
   }
 
+  /// Deletes a Key-Value pair and the operation is appended to the WAL.
+  /// 
+  /// This is achieved using tombstones.
+  pub fn delete(&mut self, key: &[u8], timestamp: u128) -> Result<(), WALError> {
+    if let Err(_) = self.file.write(&key.len().to_le_bytes()) {
+      return Err(AppendEntryError);
+    }
+    if let Err(_) = self.file.write(&(true as u8).to_le_bytes()) {
+      return Err(AppendEntryError);
+    }
+    if let Err(_) = self.file.write(key) {
+      return Err(AppendEntryError);
+    }
+    if let Err(_) = self.file.write(&timestamp.to_le_bytes()) {
+      return Err(AppendEntryError);
+    }
+
+    return Ok(());
+  }
+
+  /// Flushes the WAL to disk. 
+  /// 
+  /// This is useful for applying bulk operations and flushing the final result to 
+  /// disk. Waiting to flush after the bulk operations have been performed will improve 
+  /// write performance substantially.
   pub fn flush(&mut self) -> Result<(), WALError> {
     if let Err(_) = self.file.flush() {
       return Err(AppendEntryError);
@@ -162,23 +218,38 @@ mod tests {
   use std::io::BufReader;
   use std::time::{SystemTime, UNIX_EPOCH};
 
-  fn check_entry(reader: &mut BufReader<File>, key: &[u8], value: &[u8], timestamp: u128) {
+  fn check_entry(
+    reader: &mut BufReader<File>,
+    key: &[u8],
+    value: Option<&[u8]>,
+    timestamp: u128,
+    deleted: bool,
+  ) {
     let mut len_buffer = [0; 8];
     reader.read_exact(&mut len_buffer).unwrap();
     let file_key_len = usize::from_le_bytes(len_buffer);
     assert_eq!(file_key_len, key.len());
 
-    reader.read_exact(&mut len_buffer).unwrap();
-    let file_value_len = usize::from_le_bytes(len_buffer);
-    assert_eq!(file_value_len, value.len());
+    let mut bool_buffer = [0; 1];
+    reader.read_exact(&mut bool_buffer).unwrap();
+    let file_deleted = bool_buffer[0] != 0;
+    assert_eq!(file_deleted, deleted);
 
-    let mut file_key = vec![0; file_key_len];
-    reader.read_exact(&mut file_key).unwrap();
-    assert_eq!(file_key, key);
-
-    let mut file_value = vec![0; file_value_len];
-    reader.read_exact(&mut file_value).unwrap();
-    assert_eq!(file_value, value);
+    if deleted {
+      let mut file_key = vec![0; file_key_len];
+      reader.read_exact(&mut file_key).unwrap();
+      assert_eq!(file_key, key);
+    } else {
+      reader.read_exact(&mut len_buffer).unwrap();
+      let file_value_len = usize::from_le_bytes(len_buffer);
+      assert_eq!(file_value_len, value.unwrap().len());
+      let mut file_key = vec![0; file_key_len];
+      reader.read_exact(&mut file_key).unwrap();
+      assert_eq!(file_key, key);
+      let mut file_value = vec![0; file_value_len];
+      reader.read_exact(&mut file_value).unwrap();
+      assert_eq!(file_value, value.unwrap());
+    }
 
     let mut timestamp_buffer = [0; 16];
     reader.read_exact(&mut timestamp_buffer).unwrap();
@@ -198,13 +269,19 @@ mod tests {
       .as_micros();
 
     let mut wal = WAL::new(dir.as_str());
-    wal.append(b"Lime", b"Lime Smoothie", timestamp).unwrap();
+    wal.set(b"Lime", b"Lime Smoothie", timestamp).unwrap();
     wal.flush().unwrap();
 
     let file = OpenOptions::new().read(true).open(&wal.path).unwrap();
     let mut reader = BufReader::new(file);
 
-    check_entry(&mut reader, b"Lime", b"Lime Smoothie", timestamp);
+    check_entry(
+      &mut reader,
+      b"Lime",
+      Some(b"Lime Smoothie"),
+      timestamp,
+      false,
+    );
 
     remove_dir_all(&dir).unwrap();
   }
@@ -220,16 +297,16 @@ mod tests {
       .unwrap()
       .as_micros();
 
-    let entries: Vec<(&[u8], &[u8])> = vec![
-      (b"Apple", b"Apple Smoothie"),
-      (b"Lime", b"Lime Smoothie"),
-      (b"Orange", b"Orange Smoothie"),
+    let entries: Vec<(&[u8], Option<&[u8]>)> = vec![
+      (b"Apple", Some(b"Apple Smoothie")),
+      (b"Lime", Some(b"Lime Smoothie")),
+      (b"Orange", Some(b"Orange Smoothie")),
     ];
 
     let mut wal = WAL::new(dir.as_str());
 
     for e in entries.iter() {
-      wal.append(e.0, e.1, timestamp).unwrap();
+      wal.set(e.0, e.1.unwrap(), timestamp).unwrap();
     }
     wal.flush().unwrap();
 
@@ -237,7 +314,48 @@ mod tests {
     let mut reader = BufReader::new(file);
 
     for e in entries.iter() {
-      check_entry(&mut reader, e.0, e.1, timestamp);
+      check_entry(&mut reader, e.0, e.1, timestamp, false);
+    }
+
+    remove_dir_all(&dir).unwrap();
+  }
+
+  #[test]
+  fn test_write_delete() {
+    let mut rng = rand::thread_rng();
+    let dir = format!("./{}/", rng.gen::<u32>());
+    create_dir(&dir).unwrap();
+
+    let timestamp = SystemTime::now()
+      .duration_since(UNIX_EPOCH)
+      .unwrap()
+      .as_micros();
+
+    let entries: Vec<(&[u8], Option<&[u8]>)> = vec![
+      (b"Apple", Some(b"Apple Smoothie")),
+      (b"Lime", Some(b"Lime Smoothie")),
+      (b"Orange", Some(b"Orange Smoothie")),
+    ];
+
+    let mut wal = WAL::new(dir.as_str());
+
+    for e in entries.iter() {
+      wal.set(e.0, e.1.unwrap(), timestamp).unwrap();
+    }
+    for e in entries.iter() {
+      wal.delete(e.0, timestamp).unwrap();
+    }
+
+    wal.flush().unwrap();
+
+    let file = OpenOptions::new().read(true).open(&wal.path).unwrap();
+    let mut reader = BufReader::new(file);
+
+    for e in entries.iter() {
+      check_entry(&mut reader, e.0, e.1, timestamp, false);
+    }
+    for e in entries.iter() {
+      check_entry(&mut reader, e.0, None, timestamp, true);
     }
 
     remove_dir_all(&dir).unwrap();
@@ -264,16 +382,16 @@ mod tests {
     let dir = format!("./{}/", rng.gen::<u32>());
     create_dir(&dir).unwrap();
 
-    let entries: Vec<(&[u8], &[u8])> = vec![
-      (b"Apple", b"Apple Smoothie"),
-      (b"Lime", b"Lime Smoothie"),
-      (b"Orange", b"Orange Smoothie"),
+    let entries: Vec<(&[u8], Option<&[u8]>)> = vec![
+      (b"Apple", Some(b"Apple Smoothie")),
+      (b"Lime", Some(b"Lime Smoothie")),
+      (b"Orange", Some(b"Orange Smoothie")),
     ];
 
     let mut wal = WAL::new(dir.as_str());
 
     for (i, e) in entries.iter().enumerate() {
-      wal.append(e.0, e.1, i as u128).unwrap();
+      wal.set(e.0, e.1.unwrap(), i as u128).unwrap();
     }
     wal.flush().unwrap();
 
@@ -283,11 +401,11 @@ mod tests {
     let mut reader = BufReader::new(file);
 
     for (i, e) in entries.iter().enumerate() {
-      check_entry(&mut reader, e.0, e.1, i as u128);
+      check_entry(&mut reader, e.0, e.1, i as u128, false);
 
       let mem_e = new_mem_table.get(e.0).unwrap();
       assert_eq!(mem_e.key, e.0);
-      assert_eq!(mem_e.value, e.1);
+      assert_eq!(mem_e.value.as_ref().unwrap().as_slice(), e.1.unwrap());
       assert_eq!(mem_e.timestamp, i as u128);
     }
 
@@ -300,25 +418,25 @@ mod tests {
     let dir = format!("./{}/", rng.gen::<u32>());
     create_dir(&dir).unwrap();
 
-    let entries_1: Vec<(&[u8], &[u8])> = vec![
-      (b"Apple", b"Apple Smoothie"),
-      (b"Lime", b"Lime Smoothie"),
-      (b"Orange", b"Orange Smoothie"),
+    let entries_1: Vec<(&[u8], Option<&[u8]>)> = vec![
+      (b"Apple", Some(b"Apple Smoothie")),
+      (b"Lime", Some(b"Lime Smoothie")),
+      (b"Orange", Some(b"Orange Smoothie")),
     ];
     let mut wal_1 = WAL::new(dir.as_str());
     for (i, e) in entries_1.iter().enumerate() {
-      wal_1.append(e.0, e.1, i as u128).unwrap();
+      wal_1.set(e.0, e.1.unwrap(), i as u128).unwrap();
     }
     wal_1.flush().unwrap();
 
-    let entries_2: Vec<(&[u8], &[u8])> = vec![
-      (b"Strawberry", b"Strawberry Smoothie"),
-      (b"Blueberry", b"Blueberry Smoothie"),
-      (b"Orange", b"Orange Milkshake"),
+    let entries_2: Vec<(&[u8], Option<&[u8]>)> = vec![
+      (b"Strawberry", Some(b"Strawberry Smoothie")),
+      (b"Blueberry", Some(b"Blueberry Smoothie")),
+      (b"Orange", Some(b"Orange Milkshake")),
     ];
     let mut wal_2 = WAL::new(dir.as_str());
     for (i, e) in entries_2.iter().enumerate() {
-      wal_2.append(e.0, e.1, (i + 3) as u128).unwrap();
+      wal_2.set(e.0, e.1.unwrap(), (i + 3) as u128).unwrap();
     }
     wal_2.flush().unwrap();
 
@@ -328,25 +446,25 @@ mod tests {
     let mut reader = BufReader::new(file);
 
     for (i, e) in entries_1.iter().enumerate() {
-      check_entry(&mut reader, e.0, e.1, i as u128);
+      check_entry(&mut reader, e.0, e.1, i as u128, false);
 
       let mem_e = new_mem_table.get(e.0).unwrap();
       if i != 2 {
         assert_eq!(mem_e.key, e.0);
-        assert_eq!(mem_e.value, e.1);
+        assert_eq!(mem_e.value.as_ref().unwrap().as_slice(), e.1.unwrap());
         assert_eq!(mem_e.timestamp, i as u128);
       } else {
         assert_eq!(mem_e.key, e.0);
-        assert_ne!(mem_e.value, e.1);
+        assert_ne!(mem_e.value.as_ref().unwrap().as_slice(), e.1.unwrap());
         assert_ne!(mem_e.timestamp, i as u128);
       }
     }
     for (i, e) in entries_2.iter().enumerate() {
-      check_entry(&mut reader, e.0, e.1, (i + 3) as u128);
+      check_entry(&mut reader, e.0, e.1, (i + 3) as u128, false);
 
       let mem_e = new_mem_table.get(e.0).unwrap();
       assert_eq!(mem_e.key, e.0);
-      assert_eq!(mem_e.value, e.1);
+      assert_eq!(mem_e.value.as_ref().unwrap().as_slice(), e.1.unwrap());
       assert_eq!(mem_e.timestamp, (i + 3) as u128);
     }
 
