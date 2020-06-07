@@ -1,4 +1,4 @@
-use crate::mem_table::{MemEntry, MemTable};
+use crate::mem_table::{MemTableEntry, MemTable};
 use crate::utils::files_with_ext;
 use crate::wal::WALError::*;
 use std::fs::{metadata, remove_file, File, OpenOptions};
@@ -99,7 +99,7 @@ impl WAL {
   }
 
   /// Reads an entry in the WAL and recovers a corresponding MemTable Entry.
-  fn read_mem_table_entry(reader: &mut BufReader<File>) -> Result<(MemEntry, usize), WALError> {
+  fn read_mem_table_entry(reader: &mut BufReader<File>) -> Result<(MemTableEntry, usize), WALError> {
     let mut len_buffer = [0; 8];
     if let Err(_) = reader.read_exact(&mut len_buffer) {
       return Err(CorruptRecord);
@@ -141,7 +141,7 @@ impl WAL {
     let timestamp = u128::from_le_bytes(timestamp_buffer);
 
     return Ok((
-      MemEntry {
+      MemTableEntry {
         key: key,
         value: value,
         timestamp: timestamp,

@@ -1,6 +1,5 @@
 /// MemTable entry.
-#[derive(Debug)]
-pub struct MemEntry {
+pub struct MemTableEntry {
   pub key: Vec<u8>,
   pub value: Option<Vec<u8>>,
   pub timestamp: u128,
@@ -16,7 +15,7 @@ pub struct MemEntry {
 ///
 /// Entries are stored in a Vector over a HashMap to support Scans.
 pub struct MemTable {
-  entries: Vec<MemEntry>,
+  entries: Vec<MemTableEntry>,
   size: usize,
 }
 
@@ -31,7 +30,7 @@ impl MemTable {
 
   /// Sets a Key-Value pair in the MemTable.
   pub fn set(&mut self, key: &[u8], value: &[u8], timestamp: u128) {
-    let entry = MemEntry {
+    let entry = MemTableEntry {
       key: key.to_owned(),
       value: Some(value.to_owned()),
       timestamp: timestamp,
@@ -61,7 +60,7 @@ impl MemTable {
   ///
   /// This is achieved using tombstones.
   pub fn delete(&mut self, key: &[u8], timestamp: u128) {
-    let entry = MemEntry {
+    let entry = MemTableEntry {
       key: key.to_owned(),
       value: None,
       timestamp: timestamp,
@@ -85,7 +84,7 @@ impl MemTable {
   /// Gets a Key-Value pair from the MemTable.alloc
   ///
   /// If no record with the same key exists in the MemTable, return None.
-  pub fn get(&self, key: &[u8]) -> Option<&MemEntry> {
+  pub fn get(&self, key: &[u8]) -> Option<&MemTableEntry> {
     if let Ok(idx) = self.get_index(key) {
       if self.entries[idx].deleted {
         return None;
@@ -111,7 +110,7 @@ impl MemTable {
   }
 
   /// Gets all of the records from the MemTable.
-  pub fn entries(&self) -> &Vec<MemEntry> {
+  pub fn entries(&self) -> &Vec<MemTableEntry> {
     return &self.entries;
   }
 
