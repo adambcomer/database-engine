@@ -6,14 +6,14 @@ pub struct MemTableEntry {
   pub deleted: bool,
 }
 
-/// MemTable holds a sorted list of the lasts written records.
+/// MemTable holds a sorted list of the latest written records.
 ///
 /// Writes are duplicated to the WAL for recovery of the MemTable in the event of a restart.
 ///
 /// MemTables have a max capacity and when that is reached, we flush the MemTable
 /// to disk as a Table(SSTable).
 ///
-/// Entries are stored in a Vector over a HashMap to support Scans.
+/// Entries are stored in a Vector instead of a HashMap to support Scans.
 pub struct MemTable {
   entries: Vec<MemTableEntry>,
   size: usize,
@@ -46,6 +46,8 @@ impl MemTable {
           } else {
             self.size += value.len() - v.len();
           }
+        } else {
+          self.size += value.len();
         }
         self.entries[idx] = entry;
       }
@@ -86,9 +88,6 @@ impl MemTable {
   /// If no record with the same key exists in the MemTable, return None.
   pub fn get(&self, key: &[u8]) -> Option<&MemTableEntry> {
     if let Ok(idx) = self.get_index(key) {
-      if self.entries[idx].deleted {
-        return None;
-      }
       return Some(&self.entries[idx]);
     }
     return None;
@@ -254,8 +253,11 @@ mod tests {
 
     table.delete(b"Apple", 10);
 
-    let res = table.get(b"Apple");
-    assert_eq!(res.is_some(), false);
+    let res = table.get(b"Apple").unwrap();
+    assert_eq!(res.key, b"Apple");
+    assert_eq!(res.value, None);
+    assert_eq!(res.timestamp, 10);
+    assert_eq!(res.deleted, true);
 
     assert_eq!(table.entries[0].key, b"Apple");
     assert_eq!(table.entries[0].value, None);
@@ -271,8 +273,11 @@ mod tests {
 
     table.delete(b"Apple", 10);
 
-    let res = table.get(b"Apple");
-    assert_eq!(res.is_some(), false);
+    let res = table.get(b"Apple").unwrap();
+    assert_eq!(res.key, b"Apple");
+    assert_eq!(res.value, None);
+    assert_eq!(res.timestamp, 10);
+    assert_eq!(res.deleted, true);
 
     assert_eq!(table.entries[0].key, b"Apple");
     assert_eq!(table.entries[0].value, None);
