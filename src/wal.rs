@@ -1,9 +1,11 @@
-use crate::mem_table::{MemTableEntry, MemTable};
+use crate::mem_table::MemTable;
 use crate::utils::files_with_ext;
 use crate::wal::WALError::*;
-use std::fs::{metadata, remove_file, File, OpenOptions};
+use crate::wal_iterator::WALEntry;
+use crate::wal_iterator::WALIterator;
+use std::fs::{remove_file, File, OpenOptions};
 use std::io::prelude::*;
-use std::io::{BufReader, BufWriter};
+use std::io::{self, BufWriter};
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -16,7 +18,7 @@ pub enum WALError {
 
 /// Write Ahead Log(WAL)
 ///
-/// An append-only file that holds the operations performed on the MemTable. 
+/// An append-only file that holds the operations performed on the MemTable.
 /// The WAL is intended for recovery of the MemTable when the server is shutdown.
 pub struct WAL {
   path: PathBuf,
@@ -24,131 +26,71 @@ pub struct WAL {
 }
 
 impl WAL {
-
   /// Creates a new WAL in a given directory.
-  pub fn new(dir: &str) -> WAL {
+  pub fn new(dir: &str) -> io::Result<WAL> {
     let timestamp = SystemTime::now()
       .duration_since(UNIX_EPOCH)
       .unwrap()
       .as_micros();
 
     let path = Path::new(dir).join(timestamp.to_string() + ".wal");
-    let file = OpenOptions::new()
-      .append(true)
-      .create(true)
-      .open(&path)
-      .unwrap();
+    let file = OpenOptions::new().append(true).create(true).open(&path)?;
     let file = BufWriter::new(file);
 
-    return WAL {
+    return Ok(WAL {
       path: path,
       file: file,
-    };
+    });
   }
 
-  /// Loads the WAL(s) within a directory, returning a new WAL and the recovered MemTable. 
-  /// 
+  /// Creates a WAL from an existing file path.
+  pub fn from_path(path: &str) -> io::Result<WAL> {
+    let file = OpenOptions::new().append(true).create(true).open(&path)?;
+    let file = BufWriter::new(file);
+
+    return Ok(WAL {
+      path: PathBuf::from(path),
+      file: file,
+    });
+  }
+
+  /// Loads the WAL(s) within a directory, returning a new WAL and the recovered MemTable.
+  ///
   /// If multiple WALs exists in a directory, they are merged by file date.
   pub fn load_wal(dir: &str) -> Result<(WAL, MemTable), WALError> {
     let mut wal_files = files_with_ext(dir, "wal");
     wal_files.sort();
 
     let mut new_mem_table = MemTable::new();
-    let mut new_wal = WAL::new(dir);
-
-    for w_f in wal_files.iter() {
-      if let Ok(file) = OpenOptions::new().read(true).open(&w_f) {
-        let mut reader = BufReader::new(file);
-
-        let m = metadata(w_f).unwrap();
-        let mut pos = 0;
-        loop {
-          if pos as u64 == m.len() {
-            break;
+    if let Ok(mut new_wal) = WAL::new(dir) {
+      for w_f in wal_files.iter() {
+        if let Ok(wal) = WAL::from_path(w_f.to_str().unwrap()) {
+          for wal_entry in wal.into_iter() {
+            if let Ok(entry) = wal_entry {
+              if entry.deleted {
+                new_mem_table.delete(entry.key.as_slice(), entry.timestamp);
+                new_wal.delete(entry.key.as_slice(), entry.timestamp)?;
+              } else {
+                new_mem_table.set(
+                  entry.key.as_slice(),
+                  entry.value.as_ref().unwrap().as_slice(),
+                  entry.timestamp,
+                );
+                new_wal.set(
+                  entry.key.as_slice(),
+                  entry.value.unwrap().as_slice(),
+                  entry.timestamp,
+                )?;
+              }
+            }
           }
-
-          let (entry, len) = WAL::read_mem_table_entry(&mut reader).unwrap();
-
-          if entry.deleted {
-            new_mem_table.delete(entry.key.as_slice(), entry.timestamp);
-            new_wal
-              .delete(entry.key.as_slice(), entry.timestamp)
-              .unwrap();
-          } else {
-          }
-          new_mem_table.set(
-            entry.key.as_slice(),
-            entry.value.as_ref().unwrap().as_slice(),
-            entry.timestamp,
-          );
-          new_wal
-            .set(
-              entry.key.as_slice(),
-              entry.value.unwrap().as_slice(),
-              entry.timestamp,
-            )
-            .unwrap();
-
-          pos += len;
         }
       }
+      new_wal.flush().unwrap();
+      wal_files.into_iter().for_each(|f| remove_file(f).unwrap());
+      return Ok((new_wal, new_mem_table));
     }
-    new_wal.flush().unwrap();
-    wal_files.into_iter().for_each(|f| remove_file(f).unwrap());
-    return Ok((new_wal, new_mem_table));
-  }
-
-  /// Reads an entry in the WAL and recovers a corresponding MemTable Entry.
-  fn read_mem_table_entry(reader: &mut BufReader<File>) -> Result<(MemTableEntry, usize), WALError> {
-    let mut len_buffer = [0; 8];
-    if let Err(_) = reader.read_exact(&mut len_buffer) {
-      return Err(CorruptRecord);
-    }
-    let key_len = usize::from_le_bytes(len_buffer);
-
-    let mut bool_buffer = [0; 1];
-    if let Err(_) = reader.read_exact(&mut bool_buffer) {
-      return Err(CorruptRecord);
-    }
-    let deleted = bool_buffer[0] != 0;
-
-    let mut key = vec![0; key_len];
-    let mut value_len = 0;
-    let mut value = None;
-    if deleted {
-      if let Err(_) = reader.read_exact(&mut key) {
-        return Err(CorruptRecord);
-      }
-    } else {
-      if let Err(_) = reader.read_exact(&mut len_buffer) {
-        return Err(CorruptRecord);
-      }
-      value_len = usize::from_le_bytes(len_buffer);
-      if let Err(_) = reader.read_exact(&mut key) {
-        return Err(CorruptRecord);
-      }
-      let mut value_buf = vec![0; value_len];
-      if let Err(_) = reader.read_exact(&mut value_buf) {
-        return Err(CorruptRecord);
-      }
-      value = Some(value_buf);
-    }
-
-    let mut timestamp_buffer = [0; 16];
-    if let Err(_) = reader.read_exact(&mut timestamp_buffer) {
-      return Err(CorruptRecord);
-    }
-    let timestamp = u128::from_le_bytes(timestamp_buffer);
-
-    return Ok((
-      MemTableEntry {
-        key: key,
-        value: value,
-        timestamp: timestamp,
-        deleted: deleted,
-      },
-      key_len + value_len + 17 + 16,
-    ));
+    return Err(FileNotFound);
   }
 
   /// Sets a Key-Value pair and the operation is appended to the WAL.
@@ -176,7 +118,7 @@ impl WAL {
   }
 
   /// Deletes a Key-Value pair and the operation is appended to the WAL.
-  /// 
+  ///
   /// This is achieved using tombstones.
   pub fn delete(&mut self, key: &[u8], timestamp: u128) -> Result<(), WALError> {
     if let Err(_) = self.file.write(&key.len().to_le_bytes()) {
@@ -195,16 +137,23 @@ impl WAL {
     return Ok(());
   }
 
-  /// Flushes the WAL to disk. 
-  /// 
-  /// This is useful for applying bulk operations and flushing the final result to 
-  /// disk. Waiting to flush after the bulk operations have been performed will improve 
+  /// Flushes the WAL to disk.
+  ///
+  /// This is useful for applying bulk operations and flushing the final result to
+  /// disk. Waiting to flush after the bulk operations have been performed will improve
   /// write performance substantially.
-  pub fn flush(&mut self) -> Result<(), WALError> {
-    if let Err(_) = self.file.flush() {
-      return Err(AppendEntryError);
-    }
-    return Ok(());
+  pub fn flush(&mut self) -> io::Result<()> {
+    return self.file.flush();
+  }
+}
+
+impl IntoIterator for WAL {
+  type IntoIter = WALIterator;
+  type Item = Result<WALEntry, WALError>;
+
+  /// Converts a WAL into a `WALIterator` to iterate over the entries.
+  fn into_iter(self) -> <Self as std::iter::IntoIterator>::IntoIter {
+    return WALIterator::new(self.path).unwrap();
   }
 }
 
@@ -268,7 +217,7 @@ mod tests {
       .unwrap()
       .as_micros();
 
-    let mut wal = WAL::new(dir.as_str());
+    let mut wal = WAL::new(dir.as_str()).unwrap();
     wal.set(b"Lime", b"Lime Smoothie", timestamp).unwrap();
     wal.flush().unwrap();
 
@@ -303,7 +252,7 @@ mod tests {
       (b"Orange", Some(b"Orange Smoothie")),
     ];
 
-    let mut wal = WAL::new(dir.as_str());
+    let mut wal = WAL::new(dir.as_str()).unwrap();
 
     for e in entries.iter() {
       wal.set(e.0, e.1.unwrap(), timestamp).unwrap();
@@ -337,7 +286,7 @@ mod tests {
       (b"Orange", Some(b"Orange Smoothie")),
     ];
 
-    let mut wal = WAL::new(dir.as_str());
+    let mut wal = WAL::new(dir.as_str()).unwrap();
 
     for e in entries.iter() {
       wal.set(e.0, e.1.unwrap(), timestamp).unwrap();
@@ -388,7 +337,7 @@ mod tests {
       (b"Orange", Some(b"Orange Smoothie")),
     ];
 
-    let mut wal = WAL::new(dir.as_str());
+    let mut wal = WAL::new(dir.as_str()).unwrap();
 
     for (i, e) in entries.iter().enumerate() {
       wal.set(e.0, e.1.unwrap(), i as u128).unwrap();
@@ -423,7 +372,7 @@ mod tests {
       (b"Lime", Some(b"Lime Smoothie")),
       (b"Orange", Some(b"Orange Smoothie")),
     ];
-    let mut wal_1 = WAL::new(dir.as_str());
+    let mut wal_1 = WAL::new(dir.as_str()).unwrap();
     for (i, e) in entries_1.iter().enumerate() {
       wal_1.set(e.0, e.1.unwrap(), i as u128).unwrap();
     }
@@ -434,7 +383,7 @@ mod tests {
       (b"Blueberry", Some(b"Blueberry Smoothie")),
       (b"Orange", Some(b"Orange Milkshake")),
     ];
-    let mut wal_2 = WAL::new(dir.as_str());
+    let mut wal_2 = WAL::new(dir.as_str()).unwrap();
     for (i, e) in entries_2.iter().enumerate() {
       wal_2.set(e.0, e.1.unwrap(), (i + 3) as u128).unwrap();
     }

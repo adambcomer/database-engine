@@ -122,7 +122,6 @@ impl MemTable {
 #[cfg(test)]
 mod tests {
   use crate::mem_table::MemTable;
-  use std::time::{SystemTime, UNIX_EPOCH};
 
   #[test]
   fn test_mem_table_put_start() {
