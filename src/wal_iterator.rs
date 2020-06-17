@@ -1,8 +1,6 @@
-use crate::wal::WALError;
-use crate::wal::WALError::*;
 use std::fs::{File, OpenOptions};
 use std::io::prelude::*;
-use std::io::{self, BufReader, ErrorKind};
+use std::io::{self, BufReader};
 use std::path::PathBuf;
 
 #[derive(Debug)]
@@ -28,22 +26,19 @@ impl WALIterator {
 }
 
 impl Iterator for WALIterator {
-  type Item = Result<WALEntry, WALError>;
+  type Item = WALEntry;
 
   /// Gets the next entry in the WAL file.
   fn next(&mut self) -> Option<<Self as std::iter::Iterator>::Item> {
     let mut len_buffer = [0; 8];
-    if let Err(e) = self.reader.read_exact(&mut len_buffer) {
-      if e.kind() == ErrorKind::UnexpectedEof && len_buffer == [0; 8] {
-        return None;
-      }
-      return Some(Err(CorruptRecord));
+    if let Err(_) = self.reader.read_exact(&mut len_buffer) {
+      return None;
     }
     let key_len = usize::from_le_bytes(len_buffer);
 
     let mut bool_buffer = [0; 1];
     if let Err(_) = self.reader.read_exact(&mut bool_buffer) {
-      return Some(Err(CorruptRecord));
+      return None;
     }
     let deleted = bool_buffer[0] != 0;
 
@@ -51,34 +46,34 @@ impl Iterator for WALIterator {
     let mut value = None;
     if deleted {
       if let Err(_) = self.reader.read_exact(&mut key) {
-        return Some(Err(CorruptRecord));
+        return None;
       }
     } else {
       if let Err(_) = self.reader.read_exact(&mut len_buffer) {
-        return Some(Err(CorruptRecord));
+        return None;
       }
       let value_len = usize::from_le_bytes(len_buffer);
       if let Err(_) = self.reader.read_exact(&mut key) {
-        return Some(Err(CorruptRecord));
+        return None;
       }
       let mut value_buf = vec![0; value_len];
       if let Err(_) = self.reader.read_exact(&mut value_buf) {
-        return Some(Err(CorruptRecord));
+        return None;
       }
       value = Some(value_buf);
     }
 
     let mut timestamp_buffer = [0; 16];
     if let Err(_) = self.reader.read_exact(&mut timestamp_buffer) {
-      return Some(Err(CorruptRecord));
+      return None;
     }
     let timestamp = u128::from_le_bytes(timestamp_buffer);
 
-    return Some(Ok(WALEntry {
+    return Some(WALEntry {
       key: key,
       value: value,
       timestamp: timestamp,
       deleted: deleted,
-    }));
+    });
   }
 }

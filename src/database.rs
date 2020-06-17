@@ -31,7 +31,7 @@ pub struct Database {
 
 impl Database {
   pub fn new(dir: &str) -> Database {
-    let (wal, mem_table) = WAL::load_wal(dir).unwrap();
+    let (wal, mem_table) = WAL::load_from_dir(dir).unwrap();
 
     return Database {
       dir: dir.to_string(),

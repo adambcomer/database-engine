@@ -57,7 +57,7 @@ impl WAL {
   /// Loads the WAL(s) within a directory, returning a new WAL and the recovered MemTable.
   ///
   /// If multiple WALs exists in a directory, they are merged by file date.
-  pub fn load_wal(dir: &str) -> Result<(WAL, MemTable), WALError> {
+  pub fn load_from_dir(dir: &str) -> Result<(WAL, MemTable), WALError> {
     let mut wal_files = files_with_ext(dir, "wal");
     wal_files.sort();
 
@@ -65,23 +65,21 @@ impl WAL {
     if let Ok(mut new_wal) = WAL::new(dir) {
       for w_f in wal_files.iter() {
         if let Ok(wal) = WAL::from_path(w_f.to_str().unwrap()) {
-          for wal_entry in wal.into_iter() {
-            if let Ok(entry) = wal_entry {
-              if entry.deleted {
-                new_mem_table.delete(entry.key.as_slice(), entry.timestamp);
-                new_wal.delete(entry.key.as_slice(), entry.timestamp)?;
-              } else {
-                new_mem_table.set(
-                  entry.key.as_slice(),
-                  entry.value.as_ref().unwrap().as_slice(),
-                  entry.timestamp,
-                );
-                new_wal.set(
-                  entry.key.as_slice(),
-                  entry.value.unwrap().as_slice(),
-                  entry.timestamp,
-                )?;
-              }
+          for entry in wal.into_iter() {
+            if entry.deleted {
+              new_mem_table.delete(entry.key.as_slice(), entry.timestamp);
+              new_wal.delete(entry.key.as_slice(), entry.timestamp)?;
+            } else {
+              new_mem_table.set(
+                entry.key.as_slice(),
+                entry.value.as_ref().unwrap().as_slice(),
+                entry.timestamp,
+              );
+              new_wal.set(
+                entry.key.as_slice(),
+                entry.value.unwrap().as_slice(),
+                entry.timestamp,
+              )?;
             }
           }
         }
@@ -149,7 +147,7 @@ impl WAL {
 
 impl IntoIterator for WAL {
   type IntoIter = WALIterator;
-  type Item = Result<WALEntry, WALError>;
+  type Item = WALEntry;
 
   /// Converts a WAL into a `WALIterator` to iterate over the entries.
   fn into_iter(self) -> <Self as std::iter::IntoIterator>::IntoIter {
@@ -316,7 +314,7 @@ mod tests {
     let dir = format!("./{}/", rng.gen::<u32>());
     create_dir(&dir).unwrap();
 
-    let (new_wal, new_mem_table) = WAL::load_wal(dir.as_str()).unwrap();
+    let (new_wal, new_mem_table) = WAL::load_from_dir(dir.as_str()).unwrap();
     assert_eq!(new_mem_table.len(), 0);
 
     let m = metadata(new_wal.path).unwrap();
@@ -344,7 +342,7 @@ mod tests {
     }
     wal.flush().unwrap();
 
-    let (new_wal, new_mem_table) = WAL::load_wal(dir.as_str()).unwrap();
+    let (new_wal, new_mem_table) = WAL::load_from_dir(dir.as_str()).unwrap();
 
     let file = OpenOptions::new().read(true).open(&new_wal.path).unwrap();
     let mut reader = BufReader::new(file);
@@ -389,7 +387,7 @@ mod tests {
     }
     wal_2.flush().unwrap();
 
-    let (new_wal, new_mem_table) = WAL::load_wal(dir.as_str()).unwrap();
+    let (new_wal, new_mem_table) = WAL::load_from_dir(dir.as_str()).unwrap();
 
     let file = OpenOptions::new().read(true).open(&new_wal.path).unwrap();
     let mut reader = BufReader::new(file);
