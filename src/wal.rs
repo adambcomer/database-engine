@@ -56,7 +56,7 @@ impl WAL {
 
   /// Loads the WAL(s) within a directory, returning a new WAL and the recovered MemTable.
   ///
-  /// If multiple WALs exists in a directory, they are merged by file date.
+  /// If multiple WALs exist in a directory, they are merged by file date.
   pub fn load_from_dir(dir: &str) -> Result<(WAL, MemTable), WALError> {
     let mut wal_files = files_with_ext(dir, "wal");
     wal_files.sort();
