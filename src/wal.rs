@@ -1,6 +1,5 @@
 use crate::mem_table::MemTable;
 use crate::utils::files_with_ext;
-use crate::wal::WALError::*;
 use crate::wal_iterator::WALEntry;
 use crate::wal_iterator::WALIterator;
 use std::fs::{remove_file, File, OpenOptions};
@@ -8,13 +7,6 @@ use std::io::prelude::*;
 use std::io::{self, BufWriter};
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
-
-#[derive(Debug)]
-pub enum WALError {
-  FileNotFound,
-  AppendEntryError,
-  CorruptRecord,
-}
 
 /// Write Ahead Log(WAL)
 ///
@@ -57,60 +49,46 @@ impl WAL {
   /// Loads the WAL(s) within a directory, returning a new WAL and the recovered MemTable.
   ///
   /// If multiple WALs exist in a directory, they are merged by file date.
-  pub fn load_from_dir(dir: &str) -> Result<(WAL, MemTable), WALError> {
+  pub fn load_from_dir(dir: &str) -> io::Result<(WAL, MemTable)> {
     let mut wal_files = files_with_ext(dir, "wal");
     wal_files.sort();
 
     let mut new_mem_table = MemTable::new();
-    if let Ok(mut new_wal) = WAL::new(dir) {
-      for w_f in wal_files.iter() {
-        if let Ok(wal) = WAL::from_path(w_f.to_str().unwrap()) {
-          for entry in wal.into_iter() {
-            if entry.deleted {
-              new_mem_table.delete(entry.key.as_slice(), entry.timestamp);
-              new_wal.delete(entry.key.as_slice(), entry.timestamp)?;
-            } else {
-              new_mem_table.set(
-                entry.key.as_slice(),
-                entry.value.as_ref().unwrap().as_slice(),
-                entry.timestamp,
-              );
-              new_wal.set(
-                entry.key.as_slice(),
-                entry.value.unwrap().as_slice(),
-                entry.timestamp,
-              )?;
-            }
+    let mut new_wal = WAL::new(dir)?;
+    for w_f in wal_files.iter() {
+      if let Ok(wal) = WAL::from_path(w_f.to_str().unwrap()) {
+        for entry in wal.into_iter() {
+          if entry.deleted {
+            new_mem_table.delete(entry.key.as_slice(), entry.timestamp);
+            new_wal.delete(entry.key.as_slice(), entry.timestamp)?;
+          } else {
+            new_mem_table.set(
+              entry.key.as_slice(),
+              entry.value.as_ref().unwrap().as_slice(),
+              entry.timestamp,
+            );
+            new_wal.set(
+              entry.key.as_slice(),
+              entry.value.unwrap().as_slice(),
+              entry.timestamp,
+            )?;
           }
         }
       }
-      new_wal.flush().unwrap();
-      wal_files.into_iter().for_each(|f| remove_file(f).unwrap());
-      return Ok((new_wal, new_mem_table));
     }
-    return Err(FileNotFound);
+    new_wal.flush().unwrap();
+    wal_files.into_iter().for_each(|f| remove_file(f).unwrap());
+    return Ok((new_wal, new_mem_table));
   }
 
   /// Sets a Key-Value pair and the operation is appended to the WAL.
-  pub fn set(&mut self, key: &[u8], value: &[u8], timestamp: u128) -> Result<(), WALError> {
-    if let Err(_) = self.file.write(&key.len().to_le_bytes()) {
-      return Err(AppendEntryError);
-    }
-    if let Err(_) = self.file.write(&(false as u8).to_le_bytes()) {
-      return Err(AppendEntryError);
-    }
-    if let Err(_) = self.file.write(&value.len().to_le_bytes()) {
-      return Err(AppendEntryError);
-    }
-    if let Err(_) = self.file.write(key) {
-      return Err(AppendEntryError);
-    }
-    if let Err(_) = self.file.write(value) {
-      return Err(AppendEntryError);
-    }
-    if let Err(_) = self.file.write(&timestamp.to_le_bytes()) {
-      return Err(AppendEntryError);
-    }
+  pub fn set(&mut self, key: &[u8], value: &[u8], timestamp: u128) -> io::Result<()> {
+    self.file.write(&key.len().to_le_bytes())?;
+    self.file.write(&(false as u8).to_le_bytes())?;
+    self.file.write(&value.len().to_le_bytes())?;
+    self.file.write(key)?;
+    self.file.write(value)?;
+    self.file.write(&timestamp.to_le_bytes())?;
 
     return Ok(());
   }
@@ -118,19 +96,11 @@ impl WAL {
   /// Deletes a Key-Value pair and the operation is appended to the WAL.
   ///
   /// This is achieved using tombstones.
-  pub fn delete(&mut self, key: &[u8], timestamp: u128) -> Result<(), WALError> {
-    if let Err(_) = self.file.write(&key.len().to_le_bytes()) {
-      return Err(AppendEntryError);
-    }
-    if let Err(_) = self.file.write(&(true as u8).to_le_bytes()) {
-      return Err(AppendEntryError);
-    }
-    if let Err(_) = self.file.write(key) {
-      return Err(AppendEntryError);
-    }
-    if let Err(_) = self.file.write(&timestamp.to_le_bytes()) {
-      return Err(AppendEntryError);
-    }
+  pub fn delete(&mut self, key: &[u8], timestamp: u128) -> io::Result<()> {
+    self.file.write(&key.len().to_le_bytes())?;
+    self.file.write(&(true as u8).to_le_bytes())?;
+    self.file.write(key)?;
+    self.file.write(&timestamp.to_le_bytes())?;
 
     return Ok(());
   }

@@ -29,7 +29,7 @@ impl Iterator for WALIterator {
   type Item = WALEntry;
 
   /// Gets the next entry in the WAL file.
-  fn next(&mut self) -> Option<<Self as std::iter::Iterator>::Item> {
+  fn next(&mut self) -> Option<WALEntry> {
     let mut len_buffer = [0; 8];
     if let Err(_) = self.reader.read_exact(&mut len_buffer) {
       return None;
