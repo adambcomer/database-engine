@@ -29,10 +29,7 @@ impl WAL {
     let file = OpenOptions::new().append(true).create(true).open(&path)?;
     let file = BufWriter::new(file);
 
-    return Ok(WAL {
-      path: path,
-      file: file,
-    });
+    Ok(WAL { path, file })
   }
 
   /// Creates a WAL from an existing file path.
@@ -40,10 +37,10 @@ impl WAL {
     let file = OpenOptions::new().append(true).create(true).open(&path)?;
     let file = BufWriter::new(file);
 
-    return Ok(WAL {
+    Ok(WAL {
       path: PathBuf::from(path),
-      file: file,
-    });
+      file,
+    })
   }
 
   /// Loads the WAL(s) within a directory, returning a new WAL and the recovered MemTable.
@@ -78,31 +75,32 @@ impl WAL {
     }
     new_wal.flush().unwrap();
     wal_files.into_iter().for_each(|f| remove_file(f).unwrap());
-    return Ok((new_wal, new_mem_table));
+
+    Ok((new_wal, new_mem_table))
   }
 
   /// Sets a Key-Value pair and the operation is appended to the WAL.
   pub fn set(&mut self, key: &[u8], value: &[u8], timestamp: u128) -> io::Result<()> {
-    self.file.write(&key.len().to_le_bytes())?;
-    self.file.write(&(false as u8).to_le_bytes())?;
-    self.file.write(&value.len().to_le_bytes())?;
-    self.file.write(key)?;
-    self.file.write(value)?;
-    self.file.write(&timestamp.to_le_bytes())?;
+    self.file.write_all(&key.len().to_le_bytes())?;
+    self.file.write_all(&(false as u8).to_le_bytes())?;
+    self.file.write_all(&value.len().to_le_bytes())?;
+    self.file.write_all(key)?;
+    self.file.write_all(value)?;
+    self.file.write_all(&timestamp.to_le_bytes())?;
 
-    return Ok(());
+    Ok(())
   }
 
   /// Deletes a Key-Value pair and the operation is appended to the WAL.
   ///
   /// This is achieved using tombstones.
   pub fn delete(&mut self, key: &[u8], timestamp: u128) -> io::Result<()> {
-    self.file.write(&key.len().to_le_bytes())?;
-    self.file.write(&(true as u8).to_le_bytes())?;
-    self.file.write(key)?;
-    self.file.write(&timestamp.to_le_bytes())?;
+    self.file.write_all(&key.len().to_le_bytes())?;
+    self.file.write_all(&(true as u8).to_le_bytes())?;
+    self.file.write_all(key)?;
+    self.file.write_all(&timestamp.to_le_bytes())?;
 
-    return Ok(());
+    Ok(())
   }
 
   /// Flushes the WAL to disk.
@@ -111,7 +109,7 @@ impl WAL {
   /// disk. Waiting to flush after the bulk operations have been performed will improve
   /// write performance substantially.
   pub fn flush(&mut self) -> io::Result<()> {
-    return self.file.flush();
+    self.file.flush()
   }
 }
 
@@ -120,8 +118,8 @@ impl IntoIterator for WAL {
   type Item = WALEntry;
 
   /// Converts a WAL into a `WALIterator` to iterate over the entries.
-  fn into_iter(self) -> <Self as std::iter::IntoIterator>::IntoIter {
-    return WALIterator::new(self.path).unwrap();
+  fn into_iter(self) -> WALIterator {
+    WALIterator::new(self.path).unwrap()
   }
 }
 

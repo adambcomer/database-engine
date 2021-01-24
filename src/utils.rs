@@ -10,5 +10,6 @@ pub fn files_with_ext(dir: &str, ext: &str) -> Vec<PathBuf> {
       files.push(path);
     }
   }
-  return files;
+
+  files
 }

@@ -11,15 +11,15 @@ pub struct DatabaseEntry {
 
 impl DatabaseEntry {
   pub fn key(&self) -> &[u8] {
-    return self.key.as_slice();
+    &self.key
   }
 
   pub fn value(&self) -> &[u8] {
-    return self.value.as_slice();
+    &self.value
   }
 
   pub fn timestamp(&self) -> u128 {
-    return self.timestamp;
+    self.timestamp
   }
 }
 
@@ -33,11 +33,11 @@ impl Database {
   pub fn new(dir: &str) -> Database {
     let (wal, mem_table) = WAL::load_from_dir(dir).unwrap();
 
-    return Database {
+    Database {
       dir: dir.to_string(),
-      mem_table: mem_table,
-      wal: wal,
-    };
+      mem_table,
+      wal,
+    }
   }
 
   pub fn get(&self, key: &[u8]) -> Option<DatabaseEntry> {
@@ -49,7 +49,7 @@ impl Database {
       });
     }
 
-    return None;
+    None
   }
 
   pub fn set(&mut self, key: &[u8], value: &[u8]) -> Result<usize, usize> {
@@ -62,13 +62,13 @@ impl Database {
     if wal_res.is_err() {
       return Err(0);
     }
-    if let Err(_) = self.wal.flush() {
+    if self.wal.flush().is_err() {
       return Err(0);
     }
 
     self.mem_table.set(key, value, timestamp);
 
-    return Ok(1);
+    Ok(1)
   }
 
   pub fn delete(&mut self, key: &[u8]) -> Result<usize, usize> {
@@ -81,12 +81,12 @@ impl Database {
     if wal_res.is_err() {
       return Err(0);
     }
-    if let Err(_) = self.wal.flush() {
+    if self.wal.flush().is_err() {
       return Err(0);
     }
 
     self.mem_table.delete(key, timestamp);
 
-    return Ok(1);
+    Ok(1)
   }
 }

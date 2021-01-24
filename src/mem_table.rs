@@ -22,10 +22,10 @@ pub struct MemTable {
 impl MemTable {
   /// Creates a new empty MemTable
   pub fn new() -> MemTable {
-    return MemTable {
+    MemTable {
       entries: Vec::new(),
       size: 0,
-    };
+    }
   }
 
   /// Sets a Key-Value pair in the MemTable.
@@ -33,7 +33,7 @@ impl MemTable {
     let entry = MemTableEntry {
       key: key.to_owned(),
       value: Some(value.to_owned()),
-      timestamp: timestamp,
+      timestamp,
       deleted: false,
     };
 
@@ -90,7 +90,7 @@ impl MemTable {
     if let Ok(idx) = self.get_index(key) {
       return Some(&self.entries[idx]);
     }
-    return None;
+    None
   }
 
   /// Performs Binary Search to find a record in the MemTable.
@@ -98,24 +98,24 @@ impl MemTable {
   /// If the record is found `[Result::Ok]` is returned, with the index of record. If the record is not
   /// found then `[Result::Err]` is returned, with the index to insert the record at.
   fn get_index(&self, key: &[u8]) -> Result<usize, usize> {
-    return self
+    self
       .entries
-      .binary_search_by_key(&key, |e| e.key.as_slice());
+      .binary_search_by_key(&key, |e| e.key.as_slice())
   }
 
   /// Gets the number of records in the MemTable.
   pub fn len(&self) -> usize {
-    return self.entries.len();
+    self.entries.len()
   }
 
   /// Gets all of the records from the MemTable.
-  pub fn entries(&self) -> &Vec<MemTableEntry> {
-    return &self.entries;
+  pub fn entries(&self) -> &[MemTableEntry] {
+    &self.entries
   }
 
   /// Gets the total size of the records in the MemTable
   pub fn size(&self) -> usize {
-    return self.size;
+    self.size
   }
 }
 
