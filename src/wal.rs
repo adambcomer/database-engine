@@ -19,7 +19,7 @@ pub struct WAL {
 
 impl WAL {
   /// Creates a new WAL in a given directory.
-  pub fn new(dir: &str) -> io::Result<WAL> {
+  pub fn new(dir: &Path) -> io::Result<WAL> {
     let timestamp = SystemTime::now()
       .duration_since(UNIX_EPOCH)
       .unwrap()
@@ -33,12 +33,12 @@ impl WAL {
   }
 
   /// Creates a WAL from an existing file path.
-  pub fn from_path(path: &str) -> io::Result<WAL> {
+  pub fn from_path(path: &Path) -> io::Result<WAL> {
     let file = OpenOptions::new().append(true).create(true).open(&path)?;
     let file = BufWriter::new(file);
 
     Ok(WAL {
-      path: PathBuf::from(path),
+      path: path.to_owned(),
       file,
     })
   }
@@ -46,14 +46,14 @@ impl WAL {
   /// Loads the WAL(s) within a directory, returning a new WAL and the recovered MemTable.
   ///
   /// If multiple WALs exist in a directory, they are merged by file date.
-  pub fn load_from_dir(dir: &str) -> io::Result<(WAL, MemTable)> {
+  pub fn load_from_dir(dir: &Path) -> io::Result<(WAL, MemTable)> {
     let mut wal_files = files_with_ext(dir, "wal");
     wal_files.sort();
 
     let mut new_mem_table = MemTable::new();
     let mut new_wal = WAL::new(dir)?;
-    for w_f in wal_files.iter() {
-      if let Ok(wal) = WAL::from_path(w_f.to_str().unwrap()) {
+    for wal_file in wal_files.iter() {
+      if let Ok(wal) = WAL::from_path(wal_file) {
         for entry in wal.into_iter() {
           if entry.deleted {
             new_mem_table.delete(entry.key.as_slice(), entry.timestamp);
@@ -131,6 +131,7 @@ mod tests {
   use std::fs::{metadata, File, OpenOptions};
   use std::io::prelude::*;
   use std::io::BufReader;
+  use std::path::PathBuf;
   use std::time::{SystemTime, UNIX_EPOCH};
 
   fn check_entry(
@@ -175,7 +176,7 @@ mod tests {
   #[test]
   fn test_write_one() {
     let mut rng = rand::thread_rng();
-    let dir = format!("./{}/", rng.gen::<u32>());
+    let dir = PathBuf::from(format!("./{}/", rng.gen::<u32>()));
     create_dir(&dir).unwrap();
 
     let timestamp = SystemTime::now()
@@ -183,7 +184,7 @@ mod tests {
       .unwrap()
       .as_micros();
 
-    let mut wal = WAL::new(dir.as_str()).unwrap();
+    let mut wal = WAL::new(&dir).unwrap();
     wal.set(b"Lime", b"Lime Smoothie", timestamp).unwrap();
     wal.flush().unwrap();
 
@@ -204,7 +205,7 @@ mod tests {
   #[test]
   fn test_write_many() {
     let mut rng = rand::thread_rng();
-    let dir = format!("./{}/", rng.gen::<u32>());
+    let dir = PathBuf::from(format!("./{}/", rng.gen::<u32>()));
     create_dir(&dir).unwrap();
 
     let timestamp = SystemTime::now()
@@ -218,7 +219,7 @@ mod tests {
       (b"Orange", Some(b"Orange Smoothie")),
     ];
 
-    let mut wal = WAL::new(dir.as_str()).unwrap();
+    let mut wal = WAL::new(&dir).unwrap();
 
     for e in entries.iter() {
       wal.set(e.0, e.1.unwrap(), timestamp).unwrap();
@@ -238,7 +239,7 @@ mod tests {
   #[test]
   fn test_write_delete() {
     let mut rng = rand::thread_rng();
-    let dir = format!("./{}/", rng.gen::<u32>());
+    let dir = PathBuf::from(format!("./{}/", rng.gen::<u32>()));
     create_dir(&dir).unwrap();
 
     let timestamp = SystemTime::now()
@@ -252,7 +253,7 @@ mod tests {
       (b"Orange", Some(b"Orange Smoothie")),
     ];
 
-    let mut wal = WAL::new(dir.as_str()).unwrap();
+    let mut wal = WAL::new(&dir).unwrap();
 
     for e in entries.iter() {
       wal.set(e.0, e.1.unwrap(), timestamp).unwrap();
@@ -279,10 +280,10 @@ mod tests {
   #[test]
   fn test_read_wal_none() {
     let mut rng = rand::thread_rng();
-    let dir = format!("./{}/", rng.gen::<u32>());
+    let dir = PathBuf::from(format!("./{}/", rng.gen::<u32>()));
     create_dir(&dir).unwrap();
 
-    let (new_wal, new_mem_table) = WAL::load_from_dir(dir.as_str()).unwrap();
+    let (new_wal, new_mem_table) = WAL::load_from_dir(&dir).unwrap();
     assert_eq!(new_mem_table.len(), 0);
 
     let m = metadata(new_wal.path).unwrap();
@@ -294,7 +295,7 @@ mod tests {
   #[test]
   fn test_read_wal_one() {
     let mut rng = rand::thread_rng();
-    let dir = format!("./{}/", rng.gen::<u32>());
+    let dir = PathBuf::from(format!("./{}/", rng.gen::<u32>()));
     create_dir(&dir).unwrap();
 
     let entries: Vec<(&[u8], Option<&[u8]>)> = vec![
@@ -303,14 +304,14 @@ mod tests {
       (b"Orange", Some(b"Orange Smoothie")),
     ];
 
-    let mut wal = WAL::new(dir.as_str()).unwrap();
+    let mut wal = WAL::new(&dir).unwrap();
 
     for (i, e) in entries.iter().enumerate() {
       wal.set(e.0, e.1.unwrap(), i as u128).unwrap();
     }
     wal.flush().unwrap();
 
-    let (new_wal, new_mem_table) = WAL::load_from_dir(dir.as_str()).unwrap();
+    let (new_wal, new_mem_table) = WAL::load_from_dir(&dir).unwrap();
 
     let file = OpenOptions::new().read(true).open(&new_wal.path).unwrap();
     let mut reader = BufReader::new(file);
@@ -330,7 +331,7 @@ mod tests {
   #[test]
   fn test_read_wal_multiple() {
     let mut rng = rand::thread_rng();
-    let dir = format!("./{}/", rng.gen::<u32>());
+    let dir = PathBuf::from(format!("./{}/", rng.gen::<u32>()));
     create_dir(&dir).unwrap();
 
     let entries_1: Vec<(&[u8], Option<&[u8]>)> = vec![
@@ -338,7 +339,7 @@ mod tests {
       (b"Lime", Some(b"Lime Smoothie")),
       (b"Orange", Some(b"Orange Smoothie")),
     ];
-    let mut wal_1 = WAL::new(dir.as_str()).unwrap();
+    let mut wal_1 = WAL::new(&dir).unwrap();
     for (i, e) in entries_1.iter().enumerate() {
       wal_1.set(e.0, e.1.unwrap(), i as u128).unwrap();
     }
@@ -349,13 +350,13 @@ mod tests {
       (b"Blueberry", Some(b"Blueberry Smoothie")),
       (b"Orange", Some(b"Orange Milkshake")),
     ];
-    let mut wal_2 = WAL::new(dir.as_str()).unwrap();
+    let mut wal_2 = WAL::new(&dir).unwrap();
     for (i, e) in entries_2.iter().enumerate() {
       wal_2.set(e.0, e.1.unwrap(), (i + 3) as u128).unwrap();
     }
     wal_2.flush().unwrap();
 
-    let (new_wal, new_mem_table) = WAL::load_from_dir(dir.as_str()).unwrap();
+    let (new_wal, new_mem_table) = WAL::load_from_dir(&dir).unwrap();
 
     let file = OpenOptions::new().read(true).open(&new_wal.path).unwrap();
     let mut reader = BufReader::new(file);

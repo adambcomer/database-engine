@@ -1,3 +1,4 @@
+use std::path::PathBuf;
 use crate::mem_table::MemTable;
 use crate::wal::WAL;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -24,17 +25,19 @@ impl DatabaseEntry {
 }
 
 pub struct Database {
-  dir: String,
+  dir: PathBuf,
   mem_table: MemTable,
   wal: WAL,
 }
 
 impl Database {
   pub fn new(dir: &str) -> Database {
-    let (wal, mem_table) = WAL::load_from_dir(dir).unwrap();
+    let dir = PathBuf::from(dir);
+
+    let (wal, mem_table) = WAL::load_from_dir(&dir).unwrap();
 
     Database {
-      dir: dir.to_string(),
+      dir: dir,
       mem_table,
       wal,
     }
