@@ -34,7 +34,7 @@ impl WAL {
 
   /// Creates a WAL from an existing file path.
   pub fn from_path(path: &Path) -> io::Result<WAL> {
-    let file = OpenOptions::new().append(true).create(true).open(&path)?;
+    let file = OpenOptions::new().append(true).create(true).open(path)?;
     let file = BufWriter::new(file);
 
     Ok(WAL {
