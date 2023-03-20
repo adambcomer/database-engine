@@ -1,5 +1,5 @@
+use std::fs::read_dir;
 use std::path::{Path, PathBuf};
-use std::fs::{read_dir};
 
 /// Gets the set of files with an extension for a given directory.
 pub fn files_with_ext(dir: &Path, ext: &str) -> Vec<PathBuf> {

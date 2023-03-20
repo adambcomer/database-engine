@@ -1,6 +1,6 @@
-use std::path::PathBuf;
 use crate::mem_table::MemTable;
 use crate::wal::WAL;
+use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 #[derive(Debug)]
