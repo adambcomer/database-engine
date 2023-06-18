@@ -3,7 +3,6 @@ use std::io::prelude::*;
 use std::io::{self, BufReader};
 use std::path::PathBuf;
 
-#[derive(Debug)]
 pub struct WALEntry {
   pub key: Vec<u8>,
   pub value: Option<Vec<u8>>,
