@@ -126,7 +126,7 @@ impl IntoIterator for WAL {
 #[cfg(test)]
 mod tests {
   use crate::wal::WAL;
-  use rand::Rng;
+  use rand::prelude::*;
   use std::fs::{create_dir, remove_dir_all};
   use std::fs::{metadata, File, OpenOptions};
   use std::io::prelude::*;
@@ -175,8 +175,8 @@ mod tests {
 
   #[test]
   fn test_write_one() {
-    let mut rng = rand::thread_rng();
-    let dir = PathBuf::from(format!("./{}/", rng.gen::<u32>()));
+    let mut rng = rand::rng();
+    let dir = PathBuf::from(format!("./{}/", rng.random::<u32>()));
     create_dir(&dir).unwrap();
 
     let timestamp = SystemTime::now()
@@ -204,8 +204,8 @@ mod tests {
 
   #[test]
   fn test_write_many() {
-    let mut rng = rand::thread_rng();
-    let dir = PathBuf::from(format!("./{}/", rng.gen::<u32>()));
+    let mut rng = rand::rng();
+    let dir = PathBuf::from(format!("./{}/", rng.random::<u32>()));
     create_dir(&dir).unwrap();
 
     let timestamp = SystemTime::now()
@@ -238,8 +238,8 @@ mod tests {
 
   #[test]
   fn test_write_delete() {
-    let mut rng = rand::thread_rng();
-    let dir = PathBuf::from(format!("./{}/", rng.gen::<u32>()));
+    let mut rng = rand::rng();
+    let dir = PathBuf::from(format!("./{}/", rng.random::<u32>()));
     create_dir(&dir).unwrap();
 
     let timestamp = SystemTime::now()
@@ -279,8 +279,8 @@ mod tests {
 
   #[test]
   fn test_read_wal_none() {
-    let mut rng = rand::thread_rng();
-    let dir = PathBuf::from(format!("./{}/", rng.gen::<u32>()));
+    let mut rng = rand::rng();
+    let dir = PathBuf::from(format!("./{}/", rng.random::<u32>()));
     create_dir(&dir).unwrap();
 
     let (new_wal, new_mem_table) = WAL::load_from_dir(&dir).unwrap();
@@ -294,8 +294,8 @@ mod tests {
 
   #[test]
   fn test_read_wal_one() {
-    let mut rng = rand::thread_rng();
-    let dir = PathBuf::from(format!("./{}/", rng.gen::<u32>()));
+    let mut rng = rand::rng();
+    let dir = PathBuf::from(format!("./{}/", rng.random::<u32>()));
     create_dir(&dir).unwrap();
 
     let entries: Vec<(&[u8], Option<&[u8]>)> = vec![
@@ -330,8 +330,8 @@ mod tests {
 
   #[test]
   fn test_read_wal_multiple() {
-    let mut rng = rand::thread_rng();
-    let dir = PathBuf::from(format!("./{}/", rng.gen::<u32>()));
+    let mut rng = rand::rng();
+    let dir = PathBuf::from(format!("./{}/", rng.random::<u32>()));
     create_dir(&dir).unwrap();
 
     let entries_1: Vec<(&[u8], Option<&[u8]>)> = vec![
