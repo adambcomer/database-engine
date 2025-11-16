@@ -126,13 +126,11 @@ impl IntoIterator for WAL {
 #[cfg(test)]
 mod tests {
   use crate::wal::WAL;
-  use rand::prelude::*;
-  use std::fs::{create_dir, remove_dir_all};
   use std::fs::{metadata, File, OpenOptions};
   use std::io::prelude::*;
   use std::io::BufReader;
-  use std::path::PathBuf;
   use std::time::{SystemTime, UNIX_EPOCH};
+  use tempfile::tempdir;
 
   fn check_entry(
     reader: &mut BufReader<File>,
@@ -175,16 +173,14 @@ mod tests {
 
   #[test]
   fn test_write_one() {
-    let mut rng = rand::rng();
-    let dir = PathBuf::from(format!("./{}/", rng.random::<u32>()));
-    create_dir(&dir).unwrap();
+    let dir = tempdir().unwrap();
 
     let timestamp = SystemTime::now()
       .duration_since(UNIX_EPOCH)
       .unwrap()
       .as_micros();
 
-    let mut wal = WAL::new(&dir).unwrap();
+    let mut wal = WAL::new(dir.path()).unwrap();
     wal.set(b"Lime", b"Lime Smoothie", timestamp).unwrap();
     wal.flush().unwrap();
 
@@ -198,15 +194,11 @@ mod tests {
       timestamp,
       false,
     );
-
-    remove_dir_all(&dir).unwrap();
   }
 
   #[test]
   fn test_write_many() {
-    let mut rng = rand::rng();
-    let dir = PathBuf::from(format!("./{}/", rng.random::<u32>()));
-    create_dir(&dir).unwrap();
+    let dir = tempdir().unwrap();
 
     let timestamp = SystemTime::now()
       .duration_since(UNIX_EPOCH)
@@ -219,7 +211,7 @@ mod tests {
       (b"Orange", Some(b"Orange Smoothie")),
     ];
 
-    let mut wal = WAL::new(&dir).unwrap();
+    let mut wal = WAL::new(dir.path()).unwrap();
 
     for e in entries.iter() {
       wal.set(e.0, e.1.unwrap(), timestamp).unwrap();
@@ -232,15 +224,11 @@ mod tests {
     for e in entries.iter() {
       check_entry(&mut reader, e.0, e.1, timestamp, false);
     }
-
-    remove_dir_all(&dir).unwrap();
   }
 
   #[test]
   fn test_write_delete() {
-    let mut rng = rand::rng();
-    let dir = PathBuf::from(format!("./{}/", rng.random::<u32>()));
-    create_dir(&dir).unwrap();
+    let dir = tempdir().unwrap();
 
     let timestamp = SystemTime::now()
       .duration_since(UNIX_EPOCH)
@@ -253,7 +241,7 @@ mod tests {
       (b"Orange", Some(b"Orange Smoothie")),
     ];
 
-    let mut wal = WAL::new(&dir).unwrap();
+    let mut wal = WAL::new(dir.path()).unwrap();
 
     for e in entries.iter() {
       wal.set(e.0, e.1.unwrap(), timestamp).unwrap();
@@ -273,30 +261,22 @@ mod tests {
     for e in entries.iter() {
       check_entry(&mut reader, e.0, None, timestamp, true);
     }
-
-    remove_dir_all(&dir).unwrap();
   }
 
   #[test]
   fn test_read_wal_none() {
-    let mut rng = rand::rng();
-    let dir = PathBuf::from(format!("./{}/", rng.random::<u32>()));
-    create_dir(&dir).unwrap();
+    let dir = tempdir().unwrap();
 
-    let (new_wal, new_mem_table) = WAL::load_from_dir(&dir).unwrap();
+    let (new_wal, new_mem_table) = WAL::load_from_dir(dir.path()).unwrap();
     assert_eq!(new_mem_table.len(), 0);
 
     let m = metadata(new_wal.path).unwrap();
     assert_eq!(m.len(), 0);
-
-    remove_dir_all(&dir).unwrap();
   }
 
   #[test]
   fn test_read_wal_one() {
-    let mut rng = rand::rng();
-    let dir = PathBuf::from(format!("./{}/", rng.random::<u32>()));
-    create_dir(&dir).unwrap();
+    let dir = tempdir().unwrap();
 
     let entries: Vec<(&[u8], Option<&[u8]>)> = vec![
       (b"Apple", Some(b"Apple Smoothie")),
@@ -304,14 +284,14 @@ mod tests {
       (b"Orange", Some(b"Orange Smoothie")),
     ];
 
-    let mut wal = WAL::new(&dir).unwrap();
+    let mut wal = WAL::new(dir.path()).unwrap();
 
     for (i, e) in entries.iter().enumerate() {
       wal.set(e.0, e.1.unwrap(), i as u128).unwrap();
     }
     wal.flush().unwrap();
 
-    let (new_wal, new_mem_table) = WAL::load_from_dir(&dir).unwrap();
+    let (new_wal, new_mem_table) = WAL::load_from_dir(dir.path()).unwrap();
 
     let file = OpenOptions::new().read(true).open(&new_wal.path).unwrap();
     let mut reader = BufReader::new(file);
@@ -324,22 +304,18 @@ mod tests {
       assert_eq!(mem_e.value.as_ref().unwrap().as_slice(), e.1.unwrap());
       assert_eq!(mem_e.timestamp, i as u128);
     }
-
-    remove_dir_all(&dir).unwrap();
   }
 
   #[test]
   fn test_read_wal_multiple() {
-    let mut rng = rand::rng();
-    let dir = PathBuf::from(format!("./{}/", rng.random::<u32>()));
-    create_dir(&dir).unwrap();
+    let dir = tempdir().unwrap();
 
     let entries_1: Vec<(&[u8], Option<&[u8]>)> = vec![
       (b"Apple", Some(b"Apple Smoothie")),
       (b"Lime", Some(b"Lime Smoothie")),
       (b"Orange", Some(b"Orange Smoothie")),
     ];
-    let mut wal_1 = WAL::new(&dir).unwrap();
+    let mut wal_1 = WAL::new(dir.path()).unwrap();
     for (i, e) in entries_1.iter().enumerate() {
       wal_1.set(e.0, e.1.unwrap(), i as u128).unwrap();
     }
@@ -350,13 +326,13 @@ mod tests {
       (b"Blueberry", Some(b"Blueberry Smoothie")),
       (b"Orange", Some(b"Orange Milkshake")),
     ];
-    let mut wal_2 = WAL::new(&dir).unwrap();
+    let mut wal_2 = WAL::new(dir.path()).unwrap();
     for (i, e) in entries_2.iter().enumerate() {
       wal_2.set(e.0, e.1.unwrap(), (i + 3) as u128).unwrap();
     }
     wal_2.flush().unwrap();
 
-    let (new_wal, new_mem_table) = WAL::load_from_dir(&dir).unwrap();
+    let (new_wal, new_mem_table) = WAL::load_from_dir(dir.path()).unwrap();
 
     let file = OpenOptions::new().read(true).open(&new_wal.path).unwrap();
     let mut reader = BufReader::new(file);
@@ -383,7 +359,5 @@ mod tests {
       assert_eq!(mem_e.value.as_ref().unwrap().as_slice(), e.1.unwrap());
       assert_eq!(mem_e.timestamp, (i + 3) as u128);
     }
-
-    remove_dir_all(&dir).unwrap();
   }
 }
