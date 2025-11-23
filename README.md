@@ -9,7 +9,7 @@ While building this database, I wrote easy to understand articles explaining how
 - [Build a Database Pt. 1: Motivation & Design](https://adambcomer.com/blog/simple-database/motivation-design/)
 - [Build a Database Pt. 2: MemTable](https://adambcomer.com/blog/simple-database/memtable/)
 - [Build a Database Pt. 3: Write Ahead Log(WAL)](https://adambcomer.com/blog/simple-database/wal/)
-- Build a Database Pt. 4: SSTable
+- [Build a Database Pt. 4: SSTable](https://adambcomer.com/blog/simple-database/sstable/)
 - Build a Database Pt. 5: Compaction
 - Build a Database Pt. 6: Putting it Together
 - Build a Database Pt. 7: Using the Database
