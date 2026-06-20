@@ -10,9 +10,9 @@ use crate::mem_table::MemTable;
 ///
 /// A `None` value indicates the key was deleted (tombstone).
 pub struct SSTableEntry {
-    key: Vec<u8>,
-    value: Option<Vec<u8>>,
-    timestamp: u128,
+    pub key: Vec<u8>,
+    pub value: Option<Vec<u8>>,
+    pub timestamp: u128,
 }
 
 /// SSTable is an immutable, sorted on-disk table flushed from a [`MemTable`].
