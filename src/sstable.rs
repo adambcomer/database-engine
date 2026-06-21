@@ -2,7 +2,6 @@ use std::fs::{create_dir_all, File, OpenOptions};
 use std::io::{self, BufRead, BufReader, BufWriter, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
-use std::{u8, usize};
 
 use crate::mem_table::MemTable;
 
